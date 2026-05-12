@@ -9,9 +9,6 @@ project(bit_chess_cpp
 # Initialize some default paths
 include(GNUInstallDirs)
 
-# Define build options
-option(bit_chess_cpp_BUILD_TESTING "Enable building of tests" OFF)
-
 if(PROJECT_IS_TOP_LEVEL)
   option(bit_chess_cpp_BUILD_DOCS "Enable building of documentation" ON)
 else()
@@ -39,14 +36,6 @@ target_compile_features(bit_chess_cpp
 if(PROJECT_IS_TOP_LEVEL)
   # Compile the application executable
   add_subdirectory(app)
-endif()
-
-if(PROJECT_IS_TOP_LEVEL)
-  # Compile the tests
-  include(CTest)
-  if(bit_chess_cpp_BUILD_TESTING)
-    add_subdirectory(tests)
-  endif()
 endif()
 
 # Add the documentation
