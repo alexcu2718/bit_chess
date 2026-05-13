@@ -13,12 +13,13 @@
 #endif
 
 #include <array>
+#include <cassert>
 #include <cstdint>
 #include <iostream>
 #include <ostream>
 #include <stdexcept>
 #include <string>
-
+#include <utility>
 namespace bit_chess_cpp {
 
 using u8 = uint8_t;
@@ -41,15 +42,12 @@ enum class Piece : u8 {
   WhiteKing = 13,
 };
 
-constexpr u32 NIBBLE_LO = ~0 / 0xFU;
+constexpr u32 NIBBLE_LO = ~0 / 0xFU; // has the LSB set of each nibble in a u32
 inline constexpr char ANSI_RESET[] = "\x1b[0m";
 inline constexpr char ANSI_WHITE[] = "\x1b[38;2;255;255;255m";
 inline constexpr char ANSI_BLACK[] = "\x1b[38;2;0;0;0m";
 inline constexpr char ANSI_EMPTY[] = "\x1b[38;2;50;50;50m";
-constexpr u32 ALL_BLACK_PAWNS = 0x02020202U;
-constexpr u32 ALL_WHITE_PAWNS = ALL_BLACK_PAWNS + NIBBLE_LO;
 
-constexpr u8 piece_bits(Piece piece) { return static_cast<u8>(piece); }
 
 constexpr Piece piece_from_bits(u8 bits) {
   switch (bits) {
@@ -89,33 +87,12 @@ constexpr Piece color_swapped(Piece piece) {
   switch (piece) {
   case Piece::Empty:
     return Piece::Empty;
-  case Piece::BlackPawn:
-    return Piece::WhitePawn;
-  case Piece::BlackBishop:
-    return Piece::WhiteBishop;
-  case Piece::BlackKnight:
-    return Piece::WhiteKnight;
-  case Piece::BlackCastle:
-    return Piece::WhiteCastle;
-  case Piece::BlackQueen:
-    return Piece::WhiteQueen;
-  case Piece::BlackKing:
-    return Piece::WhiteKing;
-  case Piece::WhitePawn:
-    return Piece::BlackPawn;
-  case Piece::WhiteBishop:
-    return Piece::BlackBishop;
-  case Piece::WhiteKnight:
-    return Piece::BlackKnight;
-  case Piece::WhiteCastle:
-    return Piece::BlackCastle;
-  case Piece::WhiteQueen:
-    return Piece::BlackQueen;
-  case Piece::WhiteKing:
-    return Piece::BlackKing;
+  default: {
+    const u8 piece_value = std::to_underlying(piece);
+    const int delta = (piece_value & 1U) == 0 ? 1 : -1; // should be branchless
+    return piece_from_bits(static_cast<u8>(piece_value + delta));
   }
-
-  throw std::out_of_range("piece must be valid");
+  }
 }
 
 constexpr char piece_to_char(Piece piece) {
@@ -152,26 +129,16 @@ constexpr char piece_to_char(Piece piece) {
 }
 
 constexpr const char *piece_to_color(Piece piece) {
-  switch (piece) {
-  case Piece::Empty:
+
+  if (piece == Piece::Empty) {
     return ANSI_EMPTY;
-  case Piece::BlackPawn:
-  case Piece::BlackBishop:
-  case Piece::BlackKnight:
-  case Piece::BlackCastle:
-  case Piece::BlackQueen:
-  case Piece::BlackKing:
-    return ANSI_BLACK;
-  case Piece::WhitePawn:
-  case Piece::WhiteBishop:
-  case Piece::WhiteKnight:
-  case Piece::WhiteCastle:
-  case Piece::WhiteQueen:
-  case Piece::WhiteKing:
-    return ANSI_WHITE;
   }
 
-  throw std::out_of_range("piece must be valid");
+  if ((static_cast<u8>(piece) & 1U) == 0) {
+    return ANSI_BLACK;
+  }
+
+  return ANSI_WHITE;
 }
 
 struct BoardRow {
@@ -182,9 +149,7 @@ struct BoardRow {
   [[nodiscard]] constexpr u32 raw_bits() const { return bits; }
 
   [[nodiscard]] constexpr Piece piece_at(u32 index) const {
-    if (index > 7) {
-      throw std::out_of_range("row index must be in 0..=7");
-    }
+    assert(index <= 7);
 
     const u32 shift = 28 - (index * 4);
     return piece_from_bits(static_cast<u8>((bits >> shift) & 0xFU));
@@ -194,7 +159,7 @@ struct BoardRow {
     u32 mirrored_bits = 0;
 
     for (u32 index = 0; index < 8; ++index) {
-      mirrored_bits |= static_cast<u32>(piece_bits(piece_at(index)))
+      mirrored_bits |= static_cast<u32>(static_cast<u8>(piece_at(index)))
                        << (index * 4);
     }
 
@@ -206,7 +171,7 @@ struct BoardRow {
 
     for (u32 index = 0; index < 8; ++index) {
       const u32 shift = 28 - (index * 4);
-      swapped_bits |= static_cast<u32>(piece_bits(
+      swapped_bits |= static_cast<u32>(static_cast<u8>(
                           bit_chess_cpp::color_swapped(piece_at(index))))
                       << shift;
     }
@@ -220,7 +185,7 @@ constexpr u32 make_row(std::array<Piece, 8> left_to_right) {
 
   for (u32 index = 0; index < 8; ++index) {
     const u32 shift = 28 - (index * 4);
-    row |= static_cast<u32>(piece_bits(left_to_right[index])) << shift;
+    row |= static_cast<u32>(static_cast<u8>(left_to_right[index])) << shift;
   }
 
   return row;
@@ -237,6 +202,8 @@ constexpr u32 BLACK_ROW_START = make_row({
     Piece::BlackCastle,
 });
 //  dirty bit tricks...
+constexpr u32 ALL_BLACK_PAWNS = 0x02020202U;
+constexpr u32 ALL_WHITE_PAWNS = ALL_BLACK_PAWNS + NIBBLE_LO;
 constexpr u32 WHITE_ROW_START = BLACK_ROW_START + NIBBLE_LO;
 constexpr u32 EMPTY_ROW = 0;
 constexpr u32 BLACK_PAWN_ROW = EMPTY_ROW + 2 * NIBBLE_LO;
@@ -265,38 +232,24 @@ public:
         rows4567_(
             pack_rows(EMPTY_ROW, EMPTY_ROW, WHITE_PAWN_ROW, WHITE_ROW_START)) {}
 
-  [[nodiscard]] constexpr BoardRow row(u32 index) const {
-    switch (index) {
-    case 0:
-      return BoardRow{unpack_row(rows0123_, 0)};
-    case 1:
-      return BoardRow{unpack_row(rows0123_, 1)};
-    case 2:
-      return BoardRow{unpack_row(rows0123_, 2)};
-    case 3:
-      return BoardRow{unpack_row(rows0123_, 3)};
-    case 4:
-      return BoardRow{unpack_row(rows4567_, 0)};
-    case 5:
-      return BoardRow{unpack_row(rows4567_, 1)};
-    case 6:
-      return BoardRow{unpack_row(rows4567_, 2)};
-    case 7:
-      return BoardRow{unpack_row(rows4567_, 3)};
-    default:
+  [[nodiscard]] constexpr BoardRow row(u32 index) const & {
+    if (index > 7) {
       throw std::out_of_range("row index must be in 0..=7");
     }
+
+    const u128 packed_rows = index < 4 ? rows0123_ : rows4567_;
+    return BoardRow{unpack_row(packed_rows, index % 4)};
   }
 
-  [[nodiscard]] constexpr BoardRow mirrored_row(u32 index) const {
+  [[nodiscard]] constexpr BoardRow mirrored_row(u32 index) const & {
     return row(index).mirrored();
   }
 
-  [[nodiscard]] constexpr BoardRow color_swapped_row(u32 index) const {
+  [[nodiscard]] constexpr BoardRow color_swapped_row(u32 index) const & {
     return row(index).color_swapped();
   }
 
-  [[nodiscard]] constexpr std::array<BoardRow, 8> rows() const {
+  [[nodiscard]] constexpr std::array<BoardRow, 8> rows() const & {
     return {row(0), row(1), row(2), row(3), row(4), row(5), row(6), row(7)};
   }
 

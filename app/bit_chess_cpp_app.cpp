@@ -3,5 +3,6 @@
 
 int main() {
   bit_chess_cpp::ChessBoard board;
-  std::cout << board << '\n';
+  board.print();
+  std::cout << '\n';
 }
