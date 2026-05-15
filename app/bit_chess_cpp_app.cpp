@@ -2,7 +2,7 @@
 #include <iostream>
 
 int main() {
-  bit_chess_cpp::ChessBoard board;
+  bit_chess_cpp::ChessBoard board{};
   board.print();
   std::cout << '\n';
 }

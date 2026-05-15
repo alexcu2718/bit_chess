@@ -1,7 +1,7 @@
 #pragma once
 
 #ifdef _MSC_VER
-#error "Not supported on MSVC"
+#error "Not supported on MSVC due to lacking __uint128_T"
 #endif
 
 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
@@ -9,7 +9,7 @@
 #endif
 
 #if !defined(__GNUC__) && !defined(__clang__)
-#error "This compiler is not supported (expected GCC or Clang)"
+#warning "READ THIS\NThis compiler is not supported (expected GCC or Clang)"
 #endif
 
 #include <array>
@@ -42,46 +42,13 @@ enum class Piece : u8 {
   WhiteKing = 13,
 };
 
-constexpr u32 NIBBLE_LO = ~0 / 0xFU; // has the LSB set of each nibble in a u32
 inline constexpr char ANSI_RESET[] = "\x1b[0m";
 inline constexpr char ANSI_WHITE[] = "\x1b[38;2;255;255;255m";
 inline constexpr char ANSI_BLACK[] = "\x1b[38;2;0;0;0m";
 inline constexpr char ANSI_EMPTY[] = "\x1b[38;2;50;50;50m";
 
-
-constexpr Piece piece_from_bits(u8 bits) {
-  switch (bits) {
-  case 0:
-    return Piece::Empty;
-  case 2:
-    return Piece::BlackPawn;
-  case 4:
-    return Piece::BlackBishop;
-  case 6:
-    return Piece::BlackKnight;
-  case 8:
-    return Piece::BlackCastle;
-  case 10:
-    return Piece::BlackQueen;
-  case 12:
-    return Piece::BlackKing;
-  case 3:
-    return Piece::WhitePawn;
-  case 5:
-    return Piece::WhiteBishop;
-  case 7:
-    return Piece::WhiteKnight;
-  case 9:
-    return Piece::WhiteCastle;
-  case 11:
-    return Piece::WhiteQueen;
-  case 13:
-    return Piece::WhiteKing;
-  default:
-    // TODO std::unreachable
-    throw std::out_of_range("piece bits must encode a valid piece");
-  }
-}
+/// Very unsafe function beware
+constexpr Piece piece_from_bits(u8 bits) { return static_cast<Piece>(bits); }
 
 constexpr Piece color_swapped(Piece piece) {
   switch (piece) {
@@ -90,7 +57,7 @@ constexpr Piece color_swapped(Piece piece) {
   default: {
     const u8 piece_value = std::to_underlying(piece);
     const int delta = (piece_value & 1U) == 0 ? 1 : -1; // should be branchless
-    return piece_from_bits(static_cast<u8>(piece_value + delta));
+    return static_cast<Piece>(piece_value + delta);
   }
   }
 }
@@ -134,7 +101,7 @@ constexpr const char *piece_to_color(Piece piece) {
     return ANSI_EMPTY;
   }
 
-  if ((static_cast<u8>(piece) & 1U) == 0) {
+  if ((std::to_underlying(piece) & 1) == 0) {
     return ANSI_BLACK;
   }
 
@@ -159,7 +126,7 @@ struct BoardRow {
     u32 mirrored_bits = 0;
 
     for (u32 index = 0; index < 8; ++index) {
-      mirrored_bits |= static_cast<u32>(static_cast<u8>(piece_at(index)))
+      mirrored_bits |= static_cast<u32>(std::to_underlying(piece_at(index)))
                        << (index * 4);
     }
 
@@ -171,7 +138,7 @@ struct BoardRow {
 
     for (u32 index = 0; index < 8; ++index) {
       const u32 shift = 28 - (index * 4);
-      swapped_bits |= static_cast<u32>(static_cast<u8>(
+      swapped_bits |= static_cast<u32>(std::to_underlying(
                           bit_chess_cpp::color_swapped(piece_at(index))))
                       << shift;
     }
@@ -179,13 +146,13 @@ struct BoardRow {
     return BoardRow{swapped_bits};
   }
 };
-
+// trivially copyable
 constexpr u32 make_row(std::array<Piece, 8> left_to_right) {
   u32 row = 0;
 
   for (u32 index = 0; index < 8; ++index) {
     const u32 shift = 28 - (index * 4);
-    row |= static_cast<u32>(static_cast<u8>(left_to_right[index])) << shift;
+    row |= static_cast<u32>(std::to_underlying(left_to_right[index])) << shift;
   }
 
   return row;
@@ -195,16 +162,29 @@ constexpr u32 BLACK_ROW_START = make_row({
     Piece::BlackCastle,
     Piece::BlackKnight,
     Piece::BlackBishop,
-    Piece::BlackQueen,
     Piece::BlackKing,
+    Piece::BlackQueen,
     Piece::BlackBishop,
     Piece::BlackKnight,
     Piece::BlackCastle,
 });
+
+constexpr u32 WHITE_ROW_START = make_row({
+    Piece::WhiteCastle,
+    Piece::WhiteKnight,
+    Piece::WhiteBishop,
+    Piece::WhiteQueen,
+    Piece::WhiteKing,
+    Piece::WhiteBishop,
+    Piece::WhiteKnight,
+    Piece::WhiteCastle,
+});
+
+constexpr u32 NIBBLE_LO = ~0 / 0xFU; // has the LSB set of each nibble in a u32
 //  dirty bit tricks...
-constexpr u32 ALL_BLACK_PAWNS = 0x02020202U;
+constexpr u32 ALL_BLACK_PAWNS = 0x02020202U; // 000010001 repeated 4*
 constexpr u32 ALL_WHITE_PAWNS = ALL_BLACK_PAWNS + NIBBLE_LO;
-constexpr u32 WHITE_ROW_START = BLACK_ROW_START + NIBBLE_LO;
+
 constexpr u32 EMPTY_ROW = 0;
 constexpr u32 BLACK_PAWN_ROW = EMPTY_ROW + 2 * NIBBLE_LO;
 constexpr u32 WHITE_PAWN_ROW = BLACK_PAWN_ROW + NIBBLE_LO;
@@ -214,14 +194,20 @@ constexpr u128 pack_rows(u32 row0, u32 row1, u32 row2, u32 row3) {
          (static_cast<u128>(row2) << 32) | static_cast<u128>(row3);
 }
 
-constexpr u32 unpack_row(u128 rows, u32 index) {
+constexpr u128 U32_MASK = static_cast<u128>(~u32{0});
+
+constexpr u32
+unpack_row(u128 rows,
+           u32 index) { // TODO make index a newtype wrapper with basically
+                        // wrapper semantics to ensure typesafety
   if (index > 3) {
     // TODO use unreachable
+
     throw std::out_of_range("packed row index must be in 0..=3");
   }
 
   const u32 shift = 96 - (index * 32);
-  return static_cast<u32>((rows >> shift) & static_cast<u128>(UINT32_MAX));
+  return static_cast<u32>((rows >> shift) & U32_MASK);
 }
 
 class ChessBoard {
@@ -238,7 +224,9 @@ public:
     }
 
     const u128 packed_rows = index < 4 ? rows0123_ : rows4567_;
-    return BoardRow{unpack_row(packed_rows, index % 4)};
+    return BoardRow{
+        unpack_row(packed_rows, index % 4)}; // compiler will optimise modulo 4
+    // eg will replace x % 4 with x & 3 (when x is unsigned or POSITIVE)
   }
 
   [[nodiscard]] constexpr BoardRow mirrored_row(u32 index) const & {
@@ -253,12 +241,14 @@ public:
     return {row(0), row(1), row(2), row(3), row(4), row(5), row(6), row(7)};
   }
 
-  void print(std::ostream &stream = std::cout) const {
+  void print(std::ostream &stream = std::cout) const & {
     stream << to_ansi_string();
   }
 
   [[nodiscard]] std::string to_string() const {
     std::string out;
+    constexpr size_t RESERVE_SIZE = 64 * 8;
+    out.reserve(RESERVE_SIZE);
 
     for (size_t row_index = 0; row_index < 8; ++row_index) {
       const BoardRow current_row = row(static_cast<u32>(row_index));
@@ -279,6 +269,8 @@ public:
 
   [[nodiscard]] std::string to_ansi_string() const {
     std::string out;
+    constexpr size_t RESERVE_SIZE = 64 * 8;
+    out.reserve(RESERVE_SIZE);
 
     for (size_t row_index = 0; row_index < 8; ++row_index) {
       const BoardRow current_row = row(static_cast<u32>(row_index));
